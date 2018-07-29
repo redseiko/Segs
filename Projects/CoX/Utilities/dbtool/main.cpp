@@ -33,21 +33,50 @@
 #include <iostream>
 #include <vector>
 
-// Return value enumeration
-enum { SUCCESS, SETTINGS_MISSING, DBFOLDER_MISSING, NOT_FORCED,
-       NOT_ENOUGH_PARAMS, SQLITE_DB_MISSING, DB_RM_FAILED, DB_CONN_FAILED,
-       QUERY_FAILED, QUERY_PREP_FAILED, USERNAME_TAKEN };
-
-static bool fileExists(QString path)
+namespace
 {
-    QFileInfo check_file("./" + path);
-    return check_file.exists() && check_file.isFile();
+    // Return value enumeration
+    enum
+    {
+        SUCCESS,
+        SETTINGS_MISSING,
+        DBFOLDER_MISSING,
+        NOT_FORCED,
+        NOT_ENOUGH_PARAMS,
+        SQLITE_DB_MISSING,
+        DB_RM_FAILED,
+        DB_CONN_FAILED,
+        QUERY_FAILED,
+        QUERY_PREP_FAILED,
+        USERNAME_TAKEN
+    };
+
+    static constexpr auto DB_DRIVER_KEY = "db_driver";
+    static constexpr auto DB_NAME_KEY = "db_name";
+    static constexpr auto DB_HOST_KEY = "db_host";
+    static constexpr auto DB_PORT_KEY = "db_port";
+    static constexpr auto DB_USER_KEY = "db_user";
+    static constexpr auto DB_PASSWORD_KEY = "db_pass";
+
+    static constexpr auto DEFAULT_DB_DRIVER = "QSQLITE";
+    static constexpr auto DEFAULT_DB_NAME = "segs";
+    static constexpr auto DEFAULT_DB_HOST = "127.0.0.1";
+    static constexpr auto DEFAULT_DB_PORT = "5432";
+    static constexpr auto DEFAULT_DB_USER = "segs";
+    static constexpr auto DEFAULT_DB_PASSWORD = "segs123";
+
+    bool fileExists(const QString& path)
+    {
+        QFileInfo file("./" + path);
+        return file.exists() && file.isFile();
+    }
 }
 
 class ConfigStruct
 {
 private:
     bool putFilePath();
+
 public:
     QString m_driver;
     QString m_dbname;
@@ -56,66 +85,77 @@ public:
     QString m_user;
     QString m_pass;
     QString m_file_path;
-    bool m_character_db = false;
+
+    bool m_is_character_database = false;
 
     ConfigStruct() = default;
     
     bool initialize_from_settings(const QString &settings_file_name, const QString &group_name);
     
-    bool isMysql() const {return m_driver.startsWith("QMYSQL");}
-    bool isPostgresql() const {return m_driver.startsWith("QPSQL");}
-    bool isSqlite() const {return m_driver.startsWith("QSQLITE");}
-
+    bool isMysql() const { return m_driver.startsWith(QStringLiteral("QMYSQL")); }
+    bool isPostgresql() const { return m_driver.startsWith(QStringLiteral("QPSQL")); }
+    bool isSqlite() const { return m_driver.startsWith(QStringLiteral("QSQLITE")); }
 };
 
-bool ConfigStruct::initialize_from_settings(const QString &settings_file_name, const QString &group_name){
-    if(!fileExists(settings_file_name))
+
+bool ConfigStruct::initialize_from_settings(
+    const QString &settings_file_name,
+    const QString &group_name)
+{
+    if (!fileExists(settings_file_name))
         return false;
     
-    QSettings config(settings_file_name,QSettings::IniFormat,nullptr);
+    QSettings config(settings_file_name, QSettings::IniFormat, nullptr);
     
     config.beginGroup(QStringLiteral("AdminServer"));
     config.beginGroup(group_name);
-    m_driver = config.value(QStringLiteral("db_driver"),"QSQLITE").toString();
-    m_dbname = config.value(QStringLiteral("db_name"),"segs").toString();
-    m_host = config.value(QStringLiteral("db_host"),"127.0.0.1").toString();
-    m_port = config.value(QStringLiteral("db_port"),"5432").toString();
-    m_user = config.value(QStringLiteral("db_user"),"segs").toString();
-    m_pass = config.value(QStringLiteral("db_pass"),"segs123").toString();
-    m_character_db = group_name.compare("AccountDatabase");
+
+    m_driver = config.value(DB_DRIVER_KEY, DEFAULT_DB_DRIVER).toString();
+    m_dbname = config.value(DB_NAME_KEY, DEFAULT_DB_NAME).toString();
+    m_host = config.value(DB_HOST_KEY, DEFAULT_DB_HOST).toString();
+    m_port = config.value(DB_PORT_KEY, DEFAULT_DB_USER).toString();
+    m_user = config.value(DB_USER_KEY, DEFAULT_DB_USER).toString();
+    m_pass = config.value(DB_PASSWORD_KEY, DEFAULT_DB_PASSWORD).toString();
+
+    m_is_character_database = (group_name.compare(QStringLiteral("CharacterDatabase")) == 0);
+
     config.endGroup(); // group_name
     config.endGroup(); // AdminServer
+
     return putFilePath();
 }
 
 bool ConfigStruct::putFilePath()
 {
     QDir db_dir(QDir::currentPath());
-    if(isSqlite())
+
+    if (isSqlite())
     {
-        if(m_character_db)
+        if (m_is_character_database)
             m_file_path = db_dir.currentPath() + "/default_dbs/sqlite/segs_game_sqlite_create.sql";
         else
             m_file_path = db_dir.currentPath() + "/default_dbs/sqlite/segs_sqlite_create.sql";
     }
-    else if(isMysql())
+    else if (isMysql())
     {
-        if(m_character_db)
+        if (m_is_character_database)
             m_file_path = db_dir.currentPath() + "/default_dbs/mysql/segs_game_mysql_create.sql";
         else
             m_file_path = db_dir.currentPath() + "/default_dbs/mysql/segs_mysql_create.sql";
     }
-    else if(isPostgresql())
+    else if (isPostgresql())
     {
-        if(m_character_db)
+        if (m_is_character_database)
             m_file_path = db_dir.currentPath() + "/default_dbs/pgsql/segs_game_postgres_create.sql";
         else
             m_file_path = db_dir.currentPath() + "/default_dbs/pgsql/segs_postgres_create.sql";
     }
-    else{
+    else
+    {
         qCritical("Unknown database driver.");
         return false;
     }
+
     return true;
 }
 
@@ -260,8 +300,8 @@ int createDatabases(std::vector<ConfigStruct> const& configs)
             // otherwise, many errors are thrown.
             if(!deleteDb(cfg.m_dbname))
             {
-                qWarning(qPrintable(QString("FAILED to remove existing file: %1").arg(cfg.m_dbname)));
-                qCritical("Ensure no processes are using it and you have permission to modify it.");
+                qCritical() << qPrintable(QString("Failed to remove existing file: %1").arg(cfg.m_dbname));
+                qCritical() << "Ensure no processes are using it and you have permission to modify it.";
                 returnvalue = DB_RM_FAILED;
                 break;
             }
@@ -415,7 +455,7 @@ int main(int argc, char **argv)
     
     if(!configs[0].initialize_from_settings(parser.value(configFileOption), "AccountDatabase"))
     {
-        qCritical(qPrintable(QString("File \"%1\" not found.").arg(parser.value(configFileOption))));
+        qCritical () << qPrintable(QString("File \"%1\" not found.").arg(parser.value(configFileOption)));
         return SETTINGS_MISSING;
     }
     configs[1].initialize_from_settings(parser.value(configFileOption), "CharacterDatabase");
